@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>保單收款換匯與百分比計算器</title>
+  <style>
+    body { margin:0; font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", "PingFang TC", "Microsoft JhengHei", sans-serif; background:#0b0f14; color:#e8edf2; }
+    .wrap { max-width: 980px; margin: 32px auto; padding: 0 16px; }
+    h1 { font-size: 22px; display:flex; gap:.5rem; align-items:center; }
+    .card { background:#121821; border:1px solid #1f2937; border-radius: 16px; padding: 16px; margin: 12px 0; }
+    .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap: 12px; }
+    .col-4 { grid-column: span 4; }
+    .col-6 { grid-column: span 6; }
+    .col-12 { grid-column: span 12; }
+    label { font-size: 12px; display:block; margin-bottom:6px; }
+    input, select, textarea { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #253041; background:#0e1420; color:#e8edf2; }
+    .btn { border:1px solid #2b384d; background:#0f1725; color:#e8edf2; padding:10px 14px; border-radius:12px; cursor:pointer; }
+    .btn.primary { background: linear-gradient(135deg, #4cc9f0, #38bdf8); color:#001018; font-weight:700; border:none; }
+    table { width:100%; border-collapse: collapse; margin-top:12px; }
+    th, td { border:1px solid #243044; padding:8px; text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>保單收款換匯與百分比計算器</h1>
+    <div class="card">
+      <div class="grid">
+        <div class="col-4"><label>保單號</label><input id="policyNo" type="text" /></div>
+        <div class="col-4"><label>簽約日期</label><input id="signDate" type="date" /></div>
+        <div class="col-4"><label>渠道</label><input id="channel" type="text" /></div>
+        <div class="col-6"><label>原幣別</label><select id="policyCcy"><option>USD</option><option>HKD</option><option>CNY</option><option>SGD</option></select></div>
+        <div class="col-6"><label>原保費（原幣）</label><input id="originalPremium" type="text" /></div>
+        <div class="col-6"><label>匯率 (1原幣=HKD)</label><input id="ratePolicyToHKD" type="text" /></div>
+        <div class="col-6"><label>Banding (%)</label><input id="banding" type="text" /></div>
+        <div class="col-12"><label>收到金額</label><textarea id="receivedList"></textarea>
+          <div><label><input type="radio" name="recvCcy" value="HKD" checked> HKD</label> <label><input type="radio" name="recvCcy" value="POL"> 原幣</label></div>
+        </div>
+      </div>
+      <button class="btn primary" id="btnCalc">計算<\/button>
+      <button class="btn" id="btnExportXLS">導出Excel<\/button>
+      <button class="btn" id="btnExportCSV">導出CSV（摘要）<\/button>
+    </div>
+    <div class=\"card\">\n      <label>導入基本資料／收款（CSV）<\/label>\n      <input id=\"masterFile\" type=\"file\" accept=\".csv\" \/>\n      <div class=\"hint\">欄位（可含表頭）：<code>policyNo, recvAmount, recvCurrency(HKD|POL), ratePolicyToHKD, originalPremium, signDate(YYYY-MM-DD), channel, banding<\/code>。同一保單可多行，系統會自動彙總實收並在輸入保單號時自動帶入。<\/div>\n      <div id=\"masterStatus\" class=\"hint\" style=\"margin-top:6px;\"><\/div>\n    <\/div>\n    <div class=\"card\" id=\"summaryCard\" style="display:none;">
+      <table>
+        <thead><tr><th>Policy No</th><th>Signed Date</th><th>First/Renew</th><th>Channel</th><th>GR amt(HKD)</th><th>Ex rate</th><th>GR amt(origin)</th><th>Premium</th><th>GR%</th><th>Refer fee%</th></tr></thead>
+        <tbody id="summaryBody"></tbody>
+      </table>
+    </div>
+  </div>
+<script>
+(function(){
+  const el=id=>document.getElementById(id);
+  const nf=(min=2,max=2)=>new Intl.NumberFormat(undefined,{minimumFractionDigits:min,maximumFractionDigits:max});
+  function parseNum(s){ if(!s) return 0; return Number((""+s).replace(/[,\s]/g,''))||0; }
+  function splitNumbers(s){ return s.split(/[\n,\s,]+/).map(parseNum).filter(v=>v); }
+
+  function compute(){
+    const premium=parseNum(el('originalPremium').value);
+    const rate=parseNum(el('ratePolicyToHKD').value);
+    const banding=parseNum(el('banding').value);
+    const recvCcy=document.querySelector('input[name="recvCcy"]:checked').value;
+    const recvList=splitNumbers(el('receivedList').value);
+    let sumHKD=0,sumPOL=0;
+    recvList.forEach(amt=>{ if(recvCcy==='HKD'){sumHKD+=amt; sumPOL+=rate?amt/rate:0;} else {sumPOL+=amt; sumHKD+=rate?amt*rate:0;} });
+    const pct=premium?sumPOL/premium*100:0;
+
+    const signDate=new Date(el('signDate').value);
+    let yearLabel='—'; if(signDate.toString()!=='Invalid Date'){ const now=new Date(); const diff=(now-signDate)/(365*24*3600*1000); yearLabel=diff<1?'首年':'續年'; }
+    const grBand=(pct*banding/100).toFixed(2);
+
+    const row=`<tr><td>${el('policyNo').value}</td><td>${el('signDate').value}</td><td>${yearLabel}</td><td>${el('channel').value}</td><td>${nf().format(sumHKD)}</td><td>${nf(4,6).format(rate)}</td><td>${nf().format(sumPOL)}</td><td>${nf().format(premium)}</td><td>${nf(2,2).format(pct)}%</td><td>${grBand}%</td></tr>`;
+    el('summaryBody').innerHTML=row;
+    el('summaryCard').style.display='block';
+  }
+
+  function exportXLS(){
+    const html=`<html><head><meta charset='utf-8'></head><body>`+document.getElementById('summaryCard').innerHTML+`</body></html>`;
+    const blob=new Blob([html],{type:'application/vnd.ms-excel'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='summary.xls'; a.click(); URL.revokeObjectURL(a.href);
+  }
+
+  el('btnCalc').addEventListener('click',compute);
+  el('btnExportXLS').addEventListener('click',exportXLS);
+})();
+</script>
+</body>
+</html>
